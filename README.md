@@ -7,11 +7,11 @@ For now,it tests multi-punch variables only (I believe other types are easy to d
 
 What you need is that python .py file, but you can also grab the BAT file to launch it easier and adjust for multiple subgroups faster.
 
-Input parameters are:
---inpfile the path to your SPSS file
---outfile the desired file name for the resulting excel (can be omitted)
---pattern (required)  the regex pattern to select variables. For example,if you need to look at M5-M9 which are multi-punch within a loop with brands, and variable names in spss are M5_(3-digit attribute code)_(3-digit brand code), and you only need to check brand 001, the pattern would be --pattern "^M(?:5|6|7|8|9)_\d{3}_001$"
---filter data filter expression. For example, --filter "DV_LinkType==2" or --filter "DV_LinkType!=2"
+Input parameters are:  
+--inpfile the path to your SPSS file  
+--outfile the desired file name for the resulting excel (can be omitted)  
+--pattern (required)  the regex pattern to select variables. For example ,if you need to look at M5-M9 which are multi-punch within a loop with brands, and variable names in spss are M5\_(3-digit attribute code)\_(3-digit brand code), and you only need to check brand 001, the pattern would be `--pattern "^M(?:5|6|7|8|9)_\d{3}_001$"`  
+--filter data filter expression. For example, `--filter "DV\_LinkType==2"` or `--filter "DV\_LinkType!=2"`
 
 ## How to use:
 
