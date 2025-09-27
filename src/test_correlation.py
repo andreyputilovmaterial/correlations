@@ -65,9 +65,9 @@ def create_DVs(df):
 
 
 
-def compute(df,var_pattern):
+def compute(df,pattern_check):
     print('prep data (select variables)...')
-    stub_cols = [col for col in df.columns if re.match(var_pattern, col)]
+    stub_cols = [col for col in df.columns if pattern_check(col)]
     data = df[stub_cols].copy()
 
     # Ensure values are 0/1
@@ -122,19 +122,12 @@ def main():
         )
         parser.add_argument('--inpfile', required=True, help='Input SPSS data file')
         parser.add_argument('--outfile', required=False, help='Output Excel file with results')
-        parser.add_argument('--pattern', required=True, help='Regex pattern to select questions; like "^M(?:5|6|7|8|9)_\d{3}_\d{3}"')
+        parser_pattern_group = parser.add_mutually_exclusive_group(required=True)
+        parser_pattern_group.add_argument('--pattern_regex', help='Regex pattern to select questions; like "^M(?:5|6|7|8|9)_\d{3}_007"')
+        parser_pattern_group.add_argument('--pattern_mask', help='Wildcard pattern to select questions; like "^M*_007"')
         parser.add_argument('--filter', required=False, help='Filter to filter down sample; for example, "DV_LinkType != 2" or "DV_LinkType == 2"')
 
         args = parser.parse_args()
-
-        # Compile regex from string param
-        pattern = re.compile(args.pattern)
-
-        # with open(args.input, 'r') as f_in, open(args.output, 'w') as f_out:
-        #     for line in f_in:
-        #         if pattern.search(line):
-        #             f_out.write(line)
-
 
         print('{script_name}: script started at {dt}'.format(dt=time_start,script_name=script_name))
 
@@ -178,10 +171,17 @@ def main():
         # 4. Compute Phi correlation matrix
         # =============================
         var_pattern = None
-        if args.pattern:
-            var_pattern = args.pattern
+        pattern_check = lambda col: True
+        if args.pattern_regex:
+            var_pattern = args.pattern_regex
+            pattern_check = lambda col: re.match(var_pattern, col,flags=re.I)
+        if args.pattern_mask:
+            var_pattern = args.pattern_mask
+            if not re.match(r'^[\w\*\?]+$',var_pattern,flags=re.I):
+                raise Exception('Pattern mask format: only alphanumeric characters, "?" and "*" are allowed: "{p}". If you need more flexibility please kindly use --pattern_regex'.format(p=var_pattern))
+            pattern_check = lambda col: re.match(r'^'+re.sub(r'\*','.*',re.sub(r'\?','.',var_pattern))+r'$', col,flags=re.I)
         print('computing...')
-        phi_matrix, strong_results = compute(df,var_pattern)
+        phi_matrix, strong_results = compute(df,pattern_check)
 
 
 

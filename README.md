@@ -10,7 +10,9 @@ What you need is that python .py file, but you can also grab the BAT file to lau
 Input parameters are:  
 --inpfile the path to your SPSS file  
 --outfile the desired file name for the resulting excel (can be omitted)  
---pattern (required)  the regex pattern to select variables. For example ,if you need to look at M5-M9 which are multi-punch within a loop with brands, and variable names in spss are M5\_(3-digit attribute code)\_(3-digit brand code), and you only need to check brand 001, the pattern would be `--pattern "^M(?:5|6|7|8|9)_\d{3}_001$"`  
+--pattern_regex or --pattern_mask (one of those 2 is required) 
+--pattern_regex the regex pattern to select variables. For example ,if you need to look at M5-M9 which are multi-punch within a loop with brands, and variable names in spss are M5\_(3-digit attribute code)\_(3-digit brand code), and you only need to check brand 001, the pattern would be `--pattern_regex "^M(?:5|6|7|8|9)_\d{3}_001$"`  
+--pattern_mask the wildcarded pattern to select variables. "`?`" stands for any one single character, "`*`" stands for any sequence (including empty) of characters. This approach is for those non-technical-savvy who struggle adjusting regular expressions. But this is very limited in its functionality. For example, you need to test all variables in M5, M6, M7, M8, M9 batteries. What can you do? Filter `M*_001`? This way you also test M1, M2, M3, M4... Or, use `M5*_001` pattern? Then you are only testing attributes within M5 and testing it against each other but not against attributes from M6, M7, M8, M9.
 --filter data filter expression. For example, `--filter "DV\_LinkType==2"` or `--filter "DV\_LinkType!=2"`
 
 ## How to use:
