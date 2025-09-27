@@ -333,11 +333,18 @@ def main():
                 min_col = 2
                 max_row = sheet.max_row
                 max_col = sheet.max_column
-                cell_range = f"{sheet.cell(row=min_row, column=min_col).coordinate}:{sheet.cell(row=max_row, column=max_col).coordinate}"
-                rule_strong = CellIsRule(operator="greaterThan", formula=["0.5"], fill=fill_strong)
-                rule_moderate = CellIsRule(operator="greaterThan", formula=["0.3"], fill=fill_light)
-                sheet.conditional_formatting.add(cell_range, rule_strong)
-                sheet.conditional_formatting.add(cell_range, rule_moderate)
+                if max_row<min_row:
+                    max_row = min_row
+                if max_col<min_col:
+                    max_col=min_col
+                if (max_row >= min_row) and (max_col >= min_col):
+                    start_cell = sheet.cell(row=min_row, column=min_col).coordinate
+                    end_cell = sheet.cell(row=max_row, column=max_col).coordinate
+                    cell_range = '{start_cell}:{end_cell}'.format(start_cell=start_cell,end_cell=end_cell)
+                    rule_strong = CellIsRule(operator="greaterThan", formula=["0.5"], fill=fill_strong)
+                    rule_moderate = CellIsRule(operator="greaterThan", formula=["0.3"], fill=fill_light)
+                    sheet.conditional_formatting.add(cell_range, rule_strong)
+                    sheet.conditional_formatting.add(cell_range, rule_moderate)
                 sheet.column_dimensions['A'].width = 25
                 sheet.row_dimensions[1].height = 21
             def format_sheet_strong_results(sheet):
