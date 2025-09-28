@@ -406,7 +406,7 @@ def main():
         print('Error:',file=sys.stderr)
         print('',file=sys.stderr)
         print('{e}'.format(e=e),file=sys.stderr)
-        print(',file=sys.stderr')
+        print('',file=sys.stderr)
         exit(1)
 
 if __name__ == '__main__':
