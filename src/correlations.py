@@ -54,7 +54,7 @@ def phi_coefficient(x, y):
 
 
 
-def read_file_pyreadstat(input_filename):
+def read_file_pyreadstat(input_filename,group_filter):
     input_filename = Path.resolve(input_filename)
     if not(Path(input_filename).is_file()):
         raise FileNotFoundError('file not found: {fname}'.format(fname=input_filename))
@@ -62,20 +62,28 @@ def read_file_pyreadstat(input_filename):
     if err_import_pyreadstat:
         raise err_import_pyreadstat
     print('reading file with pyreadstat...')
-    df, _ = pyreadstat.read_sav(input_filename_str)
-    return df
+    df, meta = pyreadstat.read_sav(input_filename_str)
+    if group_filter:
+        print('query data with filter {f}...'.format(f=group_filter))
+        df = df.query(group_filter)
+    return df, meta
 
-def read_file_mdd(input_filename):
+def read_file_mdd(input_filename,group_filter):
     def sanitize_name_for_sql_string(n):
         return '{n}'.format(n=n).replace('"','')
-    def should_process_column(col):
-        return True
-    def detect_col_type(col):
-        return 'numeric'
+    # def should_process_column(col):
+    #     return True
+    # def detect_col_type(col):
+    #     return 'numeric'
     def clean_data(df):
+        def mdd_cat_parse(df):
+            resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],resp)
+            resp = resp.split(',')
+            resp = [int(str(v).strip()) for v in resp if v.strip()]
+            return df
         print('converting data...')
         return df
-    def read_data(input_filename):
+    def read_data(input_filename,group_filter):
         input_filename = Path.resolve(input_filename)
         input_filename_mdd = Path(input_filename).with_suffix('.mdd').resolve()
         if not input_filename_mdd.is_file():
@@ -85,7 +93,7 @@ def read_file_mdd(input_filename):
             raise FileNotFoundError('DDF File not found: {f}'.format(f=input_filename_data))
         if err_import_mdd:
             raise err_import_mdd
-        sfilter = 'true'
+        sfilter = group_filter or 'true'
         try:
             print('loading with ADODB connection...')
             oconnection = win32com.client.Dispatch('ADODB.Connection')
@@ -96,7 +104,10 @@ def read_file_mdd(input_filename):
                 cols = [orecordset.Fields(i).Name for i in range(orecordset.Fields.Count)]
                 data = orecordset.GetRows()
                 df = pd.DataFrame(list(zip(*data)),columns=cols)
-                return df # "finally" will run anyway
+                # if group_filter:
+                #     print('query data with filter {f}...'.format(f=group_filter))
+                #     df = df.query(group_filter)
+                return df, None # "finally" will run anyway
             finally:
                 try:
                     if orecordset is not None:
@@ -113,16 +124,16 @@ def read_file_mdd(input_filename):
             except:
                 pass
     print('reading MDD/DDF...')
-    return clean_data(read_data(input_filename))
+    return clean_data(read_data(input_filename,group_filter))
 
-def read_file_oledb(input_filename):
+def read_file_oledb(input_filename,group_filter):
     input_filename = Path.resolve(input_filename)
     if not(Path(input_filename).is_file()):
         raise FileNotFoundError('file not found: {fname}'.format(fname=input_filename))
     print('reading file with OLDEBD connection...')
     raise Exception('This reading method is not implemented yet')
 
-def read_file_notimplemented_placeholder_future(input_filename):
+def read_file_notimplemented_placeholder_future(input_filename,group_filter):
     input_filename = Path.resolve(input_filename)
     if not(Path(input_filename).is_file()):
         raise FileNotFoundError('file not found: {fname}'.format(fname=input_filename))
@@ -137,7 +148,7 @@ readers = {
 }
 
 
-def read_file(input_filename,format=None):
+def read_file(input_filename,format=None,group_filter=None):
 
     reader = None
     input_filename = Path(input_filename)
@@ -172,7 +183,7 @@ def read_file(input_filename,format=None):
         raise Exception('format not supported: {fmt}'.format(fmt=format))
 
     if reader in readers:
-        return readers[reader](input_filename)
+        return readers[reader](input_filename,group_filter)
     else:
         raise Exception('Reader not found: {f}'.format(f=reader))
 
@@ -397,13 +408,16 @@ def clean_column_in_dataframe(series):
     # count = len(series)
     col_type = None
     all_values = { v: True for v in series }
-    mdd_pattern = re.compile(r'^\s*\{\s*(?:\d+(?:\s*,\s*\d+)*)?\s*\}\s*$')
+    mdd_raw_pattern = re.compile(r'^\s*\{\s*(?:\d+(?:\s*,\s*\d+)*)?\s*\}\s*$')
+    mdd_convertedcatnames_pattern = re.compile(r'^\s*\{\s*(?:\w+(?:\s*,\s*\w+)*)?\s*\}\s*$')
     if (1 in all_values) and len(set(all_values.keys())-{0,1})==0:
         col_type = 'multipunch_flag'
     elif len(set(all_values.keys())-{0,1})==0:
         col_type = 'blank'
-    elif all(not (str(v).strip()) or mdd_pattern.match(str(v)) for v in all_values.keys()):
+    elif all(not (str(v).strip()) or mdd_raw_pattern.match(str(v)) for v in all_values.keys()):
         col_type = 'categorical_mdd'
+    elif all(not (str(v).strip()) or mdd_convertedcatnames_pattern.match(str(v)) for v in all_values.keys()):
+        col_type = 'categorical_withconvertedcatnames_mdd'
     else:
         col_type = 'need_categorize'
     if col_type == 'multipunch_flag':
@@ -432,10 +446,26 @@ def clean_column_in_dataframe(series):
             col_name_created = '@ == {{{n}}}'.format(n=code)
             result[col_name_created] = pd.Series(values)
             code_index += 1
+    elif col_type=='categorical_withconvertedcatnames_mdd':
+        def mdd_cat_parse(resp):
+            resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],resp)
+            resp = resp.split(',')
+            resp = [str(v).strip() for v in resp if v.strip()]
+            return resp
+        all_values = { v: True for resp in series for v in mdd_cat_parse(resp) }
+        code_index = 0
+        for code, _ in all_values.items():
+            values = [ 1 if code in mdd_cat_parse(v) else 0 for v in series]
+            # col_name_created = '@_{n}'.format(n=str(code_index).zfill(3))
+            col_name_created = '@ == {{{n}}}'.format(n=code)
+            result[col_name_created] = pd.Series(values)
+            code_index += 1
+    else:
+        raise Exception('parsing values as "{fmtaa}": not implemented, or format not recognized'.format(fmt=col_type))
 
     return result
 
-def prepare_df(df,pattern_check):
+def prepare_df(df,pattern_check,config):
     print('preparing df (selecting variables)...')
     stub_cols = [col for col in df.columns if pattern_check(col)]
     print('FYI variables we take for analysis: [ {vars} ]'.format(vars=', '.join(['{c}'.format(c=c) for c in stub_cols])))
@@ -456,7 +486,7 @@ def prepare_df(df,pattern_check):
     return df
 
 
-def compute(df):
+def compute(df,config):
 
     stub_cols = [col for col in df.columns]
 
@@ -552,8 +582,15 @@ def main():
         if args.format:
             format = args.format
         config['input_filename'] = input_filename
+
+        group_filter = None
+        if args.filter:
+            group_filter = args.filter
+        config['group_filter'] = group_filter
+
         print('loading input file {f}...'.format(f=input_filename))
-        df = read_file('{f}'.format(f=input_filename),format)
+        df, meta = read_file('{f}'.format(f=input_filename),format,group_filter)
+        config['df_meta'] = meta
         
         
         
@@ -563,18 +600,18 @@ def main():
         print('creating derived variables, if needed...')
         df = create_DVs(df)
 
-        # =============================
-        # 2.2. Apply group filter (optional)
-        # =============================
-        group_filter = None
-        if args.filter:
-            group_filter = args.filter
-        if group_filter:
-            print('query data with filter {f}...'.format(f=group_filter))
-            if group_filter:
-                df = df.query(group_filter)
-        config['group_filter'] = group_filter
-        config['cases_count'] = len(df.index)
+        # # =============================
+        # # 2.2. Apply group filter (optional)
+        # # =============================
+        # group_filter = None
+        # if args.filter:
+        #     group_filter = args.filter
+        # if group_filter:
+        #     print('query data with filter {f}...'.format(f=group_filter))
+        #     if group_filter:
+        #         df = df.query(group_filter)
+        # config['group_filter'] = group_filter
+        # config['cases_count'] = len(df.index)
 
         # =============================
         # 2.3. Select and prepare variables
@@ -592,7 +629,8 @@ def main():
         config['var_pattern'] = var_pattern
 
         print('computing...')
-        df = prepare_df(df,pattern_check)
+        config['cases_count'] = len(df.index)
+        df = prepare_df(df,pattern_check,config)
         stub_cols = [col for col in df.columns]
         variables_analyzed = '[ {vars} ]'.format(vars=', '.join(['{c}'.format(c=c) for c in stub_cols]))
         config['variables_analyzed'] = variables_analyzed
@@ -603,7 +641,7 @@ def main():
         # 3. Compute Phi correlation matrix
         # =============================
         config['df'] = df
-        phi_matrix, strong_results = compute(df)
+        phi_matrix, strong_results = compute(df,config)
         results = {
             'df_phi_matrix': phi_matrix,
             'df_strong_results': strong_results,
