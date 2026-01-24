@@ -391,6 +391,50 @@ class PerformanceMonitor:
 
 
 
+
+def clean_column_in_dataframe(series):
+    result = pd.DataFrame()
+    # count = len(series)
+    col_type = None
+    all_values = { v: True for v in series }
+    mdd_pattern = re.compile(r'^\s*\{\s*(?:\d+(?:\s*,\s*\d+)*)?\s*\}\s*$')
+    if (1 in all_values) and len(set(all_values.keys())-{0,1})==0:
+        col_type = 'multipunch_flag'
+    elif len(set(all_values.keys())-{0,1})==0:
+        col_type = 'blank'
+    elif all(not (str(v).strip()) or mdd_pattern.match(str(v)) for v in all_values.keys()):
+        col_type = 'categorical_mdd'
+    else:
+        col_type = 'need_categorize'
+    if col_type == 'multipunch_flag':
+        result['@'] = series.fillna(0).astype(int)
+    elif col_type == 'blank':
+        result['@'] = series.fillna(0).astype(int)
+    elif col_type == 'need_categorize':
+        code_index = 0
+        for code, _ in all_values.items():
+            values = [ 1 if v==code else 0 for v in series]
+            # col_name_created = '@_{n}'.format(n=str(code_index).zfill(3))
+            col_name_created = '@ == {n}'.format(n=code)
+            result[col_name_created] = pd.Series(values)
+            code_index += 1
+    elif col_type=='categorical_mdd':
+        def mdd_cat_parse(resp):
+            resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],resp)
+            resp = resp.split(',')
+            resp = [int(str(v).strip()) for v in resp if v.strip()]
+            return resp
+        all_values = { v: True for resp in series for v in mdd_cat_parse(resp) }
+        code_index = 0
+        for code, _ in all_values.items():
+            values = [ 1 if code in mdd_cat_parse(v) else 0 for v in series]
+            # col_name_created = '@_{n}'.format(n=str(code_index).zfill(3))
+            col_name_created = '@ == {{{n}}}'.format(n=code)
+            result[col_name_created] = pd.Series(values)
+            code_index += 1
+
+    return result
+
 def prepare_df(df,pattern_check):
     print('preparing df (selecting variables)...')
     stub_cols = [col for col in df.columns if pattern_check(col)]
@@ -400,13 +444,14 @@ def prepare_df(df,pattern_check):
     # Ensure values are 0/1
     processed_data = pd.DataFrame()
     for col in stub_cols:
-        col_str = '{c}'.format(c=col)
-        temp = None
-        try:
-            temp = df[col].fillna(0).astype(int)
-        except ValueError as e:
-            raise Exception('ERROR: Column "{c}": df should follow the format with values 0/1 (for multi-punch), or numeric. Otherwise we can\'t check for correlations. Failed on column: "{c}". The original error message: "{msg}"'.format(msg=e,c=col_str)) from e
-        processed_data[col] = temp
+        col_name = '{c}'.format(c=col)
+        series = df[col]
+        # try:
+        result_df = clean_column_in_dataframe(series)
+        for col_append,col_appended in zip(result_df.columns.str.replace('@',col_name),result_df.columns):
+            processed_data[col_append] = result_df[col_appended]
+        # except Exception as e:
+        #     raise Exception('ERROR: Column "{c}": df should follow the format with values 0/1 (for multi-punch), or numeric. Otherwise we can\'t check for correlations. Failed on column: "{c}". The original error message: "{msg}"'.format(msg=e,c=col_name)) from e
     df = processed_data
     return df
 
@@ -518,8 +563,6 @@ def main():
         print('creating derived variables, if needed...')
         df = create_DVs(df)
 
-
-
         # =============================
         # 2.2. Apply group filter (optional)
         # =============================
@@ -533,10 +576,8 @@ def main():
         config['group_filter'] = group_filter
         config['cases_count'] = len(df.index)
 
-
-
         # =============================
-        # 3. Compute Phi correlation matrix
+        # 2.3. Select and prepare variables
         # =============================
         var_pattern = None
         pattern_check = lambda col: True
@@ -556,6 +597,11 @@ def main():
         variables_analyzed = '[ {vars} ]'.format(vars=', '.join(['{c}'.format(c=c) for c in stub_cols]))
         config['variables_analyzed'] = variables_analyzed
 
+
+
+        # =============================
+        # 3. Compute Phi correlation matrix
+        # =============================
         config['df'] = df
         phi_matrix, strong_results = compute(df)
         results = {
