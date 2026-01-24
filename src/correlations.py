@@ -1,9 +1,9 @@
 import argparse
-import traceback # for pretty-printing any issues that happened during runtime; if we hit FileNotFound I don't appreciate when a log traceback is shown, the error should be simple and clear
+import traceback # for pretty-printingof  any issues that happened during runtime; if we hit FileNotFound I don't appreciate when a log traceback is shown, the error should be simple and clear
+import sys # for printing out error messages if something is going wrong
 
 from datetime import datetime # for logging
 import time # for performance measures
-import sys # for printing out error messages if something is going wrong
 from pathlib import Path
 import re
 
@@ -30,8 +30,8 @@ except ImportError as err:
     err_import_mdd = err
 
 
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side # for styling reuslting excel
-from openpyxl.formatting.rule import FormulaRule, CellIsRule # for styling reuslting excel
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side # for styling resulting excel
+from openpyxl.formatting.rule import FormulaRule, CellIsRule # for styling resulting excel
 
 
 
@@ -280,6 +280,7 @@ def save_results(results,out_filename,config):
             ['Input File:',config['input_filename']],
             ['Run Datetime:','{dt}'.format(dt=config['time_start'])],
             ['Case Data Filter:',config['group_filter']],
+            ['Records within Case Data Filter',config['cases_count']],
             ['Variable Select Pattern:',config['var_pattern']],
             ['Variables Analyzed:',config['variables_analyzed']],
         ], columns=['name','value']).set_index("name")
@@ -530,6 +531,7 @@ def main():
             if group_filter:
                 df = df.query(group_filter)
         config['group_filter'] = group_filter
+        config['cases_count'] = len(df.index)
 
 
 

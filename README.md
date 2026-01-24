@@ -1,9 +1,17 @@
 # Correlations tester, a python script
-A helper python script that creates an Excel with data colored with different colors (orange/red for stronger correlations >0.5 and light/yellow for moderate values >0.3). It takes SPSS as input. It's something similar to what MADs is doing.
+A helper python script to calculate correlations.
 
-If we are having issues with data quality we can run it on our side and test different groups, like different providers, and identify better sample (which shows stronger correlations), or worse, more like randomly-generated sample, where there will not be any strong correlations.
+The result is a beautiful Excel, formatted similar way what MADs does. The script creates an Excel with data highlighted: orange/red for stronger correlations >0.5 and light/yellow for moderate values >0.3.
 
-For now, it tests multi-punch variables only (I believe other types are easy to do too but I did not need it and did not add possibility to calculate it yet).
+Input can be SPSS or MDD.
+
+As parameters, you provide 1. file name, 2. variables to choose, through "mask" or regular expression, 3. (optional) case data filter, to analyze only within link type, provider, or certain wgt group, 4. (optional) output file name - if not provided, a file with "correlations" added will be created at the same location as input data file.
+
+This can be used:
+- to inspect data quality (good data will show strong correlations in attributes, low-quality bot-generated or dummy data will not show any correlations)
+- to inspect why weighting groups are not working, if there is no other obvious reason
+
+The tool can only inspect multi-punch variables. Technically, anuthing that is a number is working (all categoricals in spss).
 
 What you need is that python .py file, but you can also grab the BAT file to launch it easier and adjust for multiple subgroups faster.
 
