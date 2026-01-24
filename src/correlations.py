@@ -75,13 +75,145 @@ def read_file_mdd(input_filename,group_filter):
     #     return True
     # def detect_col_type(col):
     #     return 'numeric'
-    def clean_data(df):
-        def mdd_cat_parse(df):
-            resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],resp)
+    def iter_safe(series): # fucking pythonic ugly hack; as far as I understand, there is no better workaround
+        try:
+            for v in series:
+                yield v
+        except (AttributeError, TypeError) as e:
+            msg = str(e)
+            if 'total_seconds' in msg or 'ints_to_pydatetime' in msg:
+                try:
+                    # Fallback: bypass pandas datetime machinery
+                    # vals = series.array.to_numpy(dtype=object, copy=False)
+                    # if pd.api.types.is_datetime64tz_dtype(series):
+                    if isinstance(series.dtype,pd.DatetimeTZDtype):
+                        series = series.dt.tz_localize(None)
+                    vals = series._values
+                    for v in vals:
+                        yield v
+                except:
+                    vals = pd.Series([pd.NaT]*len(series))
+                    for v in vals:
+                        yield v
+            else:
+                raise
+    class MDDDocument:
+        """Class that wraps connection to MDD"""
+        class Error(Exception):
+            """For errors accessing MDD"""
+            pass
+        def __init__(self,mdd_path,method='open',config={}):
+
+            self.__document = None
+
+            if method=='open':
+                # mDocument = win32com.client.Dispatch("MDM.Document")
+                mDocument = win32com.client.Dispatch("MDM.Document")
+                # openConstants_oNOSAVE = 3
+                openConstants_oREAD = 1
+                # openConstants_oREADWRITE = 2
+                print('opening MDD document using method "open": "{path}"'.format(path=mdd_path))
+                # we'll check that the file exists so that the error message is more informative - otherwise you see a long stack of messages that do not tell much
+                if not(Path(mdd_path).is_file()):
+                    raise FileNotFoundError('file not found: {fname}'.format(fname=mdd_path))
+                mDocument.Open( '{path}'.format(path=Path(mdd_path).resolve()), '', openConstants_oREAD )
+                self.__document = mDocument
+            elif method=='join':
+                # mDocument = win32com.client.Dispatch("MDM.Document")
+                mDocument = win32com.client.Dispatch("MDM.Document")
+                print('opening MDD document using method "join": "{path}"'.format(path=mdd_path))
+                # we'll check that the file exists so that the error message is more informative - otherwise you see a long stack of messages that do not tell much
+                if not(Path(mdd_path).is_file()):
+                    raise FileNotFoundError('file not found: {fname}'.format(fname=mdd_path))
+                mDocument.Join('{path}'.format(path=Path(mdd_path).resolve()), "{..}", 1, 32|16|512)
+                self.__document = mDocument
+            else:
+                raise Exception('MDD Open: Unknown open method, {method}'.format(method=method))
+
+            config_default = {
+            }
+            self.__config = {
+                **config_default,
+                **config,
+                'mdd_path': mdd_path,
+                'read_datetime': datetime.now(),
+            }
+            self.__category_map_cache = {}
+        def __del__(self):
+            try:
+                if self.__document is not None:
+                    self.__document.Close()
+            except:
+                pass
+            print('MDD document closed')
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+        def code_to_category_name(self,code):
+            code = int(code)
+            if code in self.__category_map_cache:
+                return self.__category_map_cache[code]
+            result = self.__document.CategoryMap.ValueToName(code)
+            self.__category_map_cache[code] = result
+            return result
+    def clean_data(df,cb_category_map):
+        def mdd_cat_parse(resp):
+            if not resp:
+                return []
+            resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],str(resp))
             resp = resp.split(',')
             resp = [int(str(v).strip()) for v in resp if v.strip()]
-            return df
-        print('converting data...')
+            return resp
+        def normalize_key(v):
+            if isinstance(v, (pd.Timestamp, np.datetime64)):
+                return '{v}'.format(v=v)
+            elif pd.isna(v):
+                return ''
+            else:
+                try:
+                    hash(v)
+                    return v
+                except:
+                    return '{v}'.format(v=v)
+        def map_category(cat_code):
+            # return 'cat_{s}'.format(s=cat_code)
+            return '{s}'.format(s=cb_category_map(cat_code))
+        def clean_column_convert_categorical(series):
+            result = []
+            for val in iter_safe(series):
+                codes = mdd_cat_parse(val)
+                codes_mapped = [ map_category(c) for c in codes ]
+                val_mapped = '{' + ', '.join(codes_mapped) + '}'
+                result.append(val_mapped)
+            return pd.Series(result)
+        def clean_column(series):
+            mdd_raw_pattern = re.compile(r'^\s*\{\s*(?:\d+(?:\s*,\s*\d+)*)?\s*\}\s*$')
+            all_values = { normalize_key(v): True for v in iter_safe(series) }
+            col_type = None
+            values_non_blank = [v for v in all_values.keys() if not not (str(v).strip())]
+            if values_non_blank and all(mdd_raw_pattern.match(str(v)) for v in values_non_blank):
+                col_type = 'categorical'
+            if col_type == 'categorical':
+                return clean_column_convert_categorical(series)
+            else:
+                return series
+        print('converting columns to categorical type with real category names...')
+        performance_counter = iter(PerformanceMonitor(config={
+            'total_records': len(df.columns),
+            'report_frequency_records_count': 20,
+            'report_frequency_timeinterval': 6,
+            'report_text_pipein': 'convertig variables',
+        }))
+        # TODO: why are we converting all, when we don't need all? To waste processing time?
+        for col in df.columns:
+            col_name = '{f}'.format(f=col)
+            try:
+                next(performance_counter)
+                df[col] = clean_column(df[col])
+            except Exception as e:
+                print('MDD: trying to convert categories: failed on column "{c}"'.format(c=col_name,file=sys.stderr))
+                raise e
         return df
     def read_data(input_filename,group_filter):
         input_filename = Path.resolve(input_filename)
@@ -124,7 +256,11 @@ def read_file_mdd(input_filename,group_filter):
             except:
                 pass
     print('reading MDD/DDF...')
-    return clean_data(read_data(input_filename,group_filter))
+    # return clean_data(read_data(input_filename,group_filter))
+    mdmdoc = MDDDocument(Path.resolve(input_filename).with_suffix('.mdd'))
+    df, meta = read_data(input_filename,group_filter)
+    df = clean_data(df,cb_category_map=lambda code: mdmdoc.code_to_category_name(code)) # mdmdoc.CategoryMap.ValueToName(int(2011))
+    return df, meta
 
 def read_file_oledb(input_filename,group_filter):
     input_filename = Path.resolve(input_filename)
@@ -404,10 +540,43 @@ class PerformanceMonitor:
 
 
 def clean_column_in_dataframe(series):
+    def normalize_key(v):
+        if isinstance(v, (pd.Timestamp, np.datetime64)):
+            return '{v}'.format(v=v)
+        elif pd.isna(v):
+            return ''
+        else:
+            try:
+                hash(v)
+                return v
+            except:
+                return '{v}'.format(v=v)
+    def iter_safe(series): # fucking pythonic ugly hack; as far as I understand, there is no better workaround
+        try:
+            for v in series:
+                yield v
+        except (AttributeError, TypeError) as e:
+            msg = str(e)
+            if 'total_seconds' in msg or 'ints_to_pydatetime' in msg:
+                try:
+                    # Fallback: bypass pandas datetime machinery
+                    # vals = series.array.to_numpy(dtype=object, copy=False)
+                    # if pd.api.types.is_datetime64tz_dtype(series):
+                    if isinstance(series.dtype,pd.DatetimeTZDtype):
+                        series = series.dt.tz_localize(None)
+                    vals = series._values
+                    for v in vals:
+                        yield v
+                except:
+                    vals = pd.Series([pd.NaT]*len(series))
+                    for v in vals:
+                        yield v
+            else:
+                raise
     result = pd.DataFrame()
     # count = len(series)
     col_type = None
-    all_values = { v: True for v in series }
+    all_values = { normalize_key(v): True for v in iter_safe(series) }
     mdd_raw_pattern = re.compile(r'^\s*\{\s*(?:\d+(?:\s*,\s*\d+)*)?\s*\}\s*$')
     mdd_convertedcatnames_pattern = re.compile(r'^\s*\{\s*(?:\w+(?:\s*,\s*\w+)*)?\s*\}\s*$')
     if (1 in all_values) and len(set(all_values.keys())-{0,1})==0:
@@ -427,9 +596,9 @@ def clean_column_in_dataframe(series):
     elif col_type == 'need_categorize':
         code_index = 0
         for code, _ in all_values.items():
-            values = [ 1 if v==code else 0 for v in series]
+            values = [ 1 if normalize_key(v)==code else 0 for v in iter_safe(series)]
             # col_name_created = '@_{n}'.format(n=str(code_index).zfill(3))
-            col_name_created = '@ == {n}'.format(n=code)
+            col_name_created = '@ =* {n}'.format(n=code)
             result[col_name_created] = pd.Series(values)
             code_index += 1
     elif col_type=='categorical_mdd':
@@ -438,12 +607,12 @@ def clean_column_in_dataframe(series):
             resp = resp.split(',')
             resp = [int(str(v).strip()) for v in resp if v.strip()]
             return resp
-        all_values = { v: True for resp in series for v in mdd_cat_parse(resp) }
+        all_values = { normalize_key(v): True for resp in iter_safe(series) for v in mdd_cat_parse(resp) }
         code_index = 0
         for code, _ in all_values.items():
-            values = [ 1 if code in mdd_cat_parse(v) else 0 for v in series]
+            values = [ 1 if code in mdd_cat_parse(v) else 0 for v in iter_safe(series)]
             # col_name_created = '@_{n}'.format(n=str(code_index).zfill(3))
-            col_name_created = '@ == {{{n}}}'.format(n=code)
+            col_name_created = '@ =* {{{n}}}'.format(n=code)
             result[col_name_created] = pd.Series(values)
             code_index += 1
     elif col_type=='categorical_withconvertedcatnames_mdd':
@@ -452,12 +621,12 @@ def clean_column_in_dataframe(series):
             resp = resp.split(',')
             resp = [str(v).strip() for v in resp if v.strip()]
             return resp
-        all_values = { v: True for resp in series for v in mdd_cat_parse(resp) }
+        all_values = { normalize_key(v): True for resp in iter_safe(series) for v in mdd_cat_parse(resp) }
         code_index = 0
         for code, _ in all_values.items():
-            values = [ 1 if code in mdd_cat_parse(v) else 0 for v in series]
+            values = [ 1 if code in mdd_cat_parse(v) else 0 for v in iter_safe(series)]
             # col_name_created = '@_{n}'.format(n=str(code_index).zfill(3))
-            col_name_created = '@ == {{{n}}}'.format(n=code)
+            col_name_created = '@ =* {{{n}}}'.format(n=code)
             result[col_name_created] = pd.Series(values)
             code_index += 1
     else:
@@ -475,13 +644,17 @@ def prepare_df(df,pattern_check,config):
     processed_data = pd.DataFrame()
     for col in stub_cols:
         col_name = '{c}'.format(c=col)
-        series = df[col]
-        # try:
-        result_df = clean_column_in_dataframe(series)
-        for col_append,col_appended in zip(result_df.columns.str.replace('@',col_name),result_df.columns):
-            processed_data[col_append] = result_df[col_appended]
-        # except Exception as e:
-        #     raise Exception('ERROR: Column "{c}": df should follow the format with values 0/1 (for multi-punch), or numeric. Otherwise we can\'t check for correlations. Failed on column: "{c}". The original error message: "{msg}"'.format(msg=e,c=col_name)) from e
+        try:
+            series = df[col]
+            # try:
+            result_df = clean_column_in_dataframe(series)
+            for col_append,col_appended in zip(result_df.columns.str.replace('@',col_name),result_df.columns):
+                processed_data[col_append] = result_df[col_appended]
+            # except Exception as e:
+            #     raise Exception('ERROR: Column "{c}": df should follow the format with values 0/1 (for multi-punch), or numeric. Otherwise we can\'t check for correlations. Failed on column: "{c}". The original error message: "{msg}"'.format(msg=e,c=col_name)) from e
+        except Exception as e:
+            print('ERROR: Trying to clean column "{c}" and convert to 1/0 number and failed'.format(c=col_name),file=sys.stderr)
+            raise e
     df = processed_data
     return df
 
@@ -630,6 +803,7 @@ def main():
 
         print('computing...')
         config['cases_count'] = len(df.index)
+        print('FYI: records in case data within filter: {n}'.format(n=config['cases_count']))
         df = prepare_df(df,pattern_check,config)
         stub_cols = [col for col in df.columns]
         variables_analyzed = '[ {vars} ]'.format(vars=', '.join(['{c}'.format(c=c) for c in stub_cols]))
