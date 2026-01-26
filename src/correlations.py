@@ -41,13 +41,17 @@ MIN_CASES_LIMIT = 8 # hard-coded, for now
 
 
 
-def phi_coefficient(x, y):
+def phi_coefficient(x, y, config):
     """Compute Phi for two binary Series."""
     table = pd.crosstab(x, y)
     if table.shape != (2,2):
         # Pad table if a value is missing
         table = table.reindex(index=[0,1], columns=[0,1], fill_value=0)
-    chi2, p, _, _ = chi2_contingency(table)
+    params = {}
+    if 'chi2_contingency_yates_correction' in config:
+        if config['chi2_contingency_yates_correction'] is not None:
+            params['correction'] = config['chi2_contingency_yates_correction']
+    chi2, p, _, _ = chi2_contingency(table,**params)
     phi = np.sqrt(chi2 / table.to_numpy().sum())
     return phi
 
@@ -438,8 +442,8 @@ def save_results(results,out_filename,config):
         format_sheet_phi_coefficients(writer.sheets['phi_coefficients'])
         # df_strong_results sheet
         df_results = pd.DataFrame([[f"{i} vs {j}",phi,count] for i,j,phi,count in df_strong_results], columns=['pair','phi','cases']).set_index("pair")
-        df_results.to_excel(writer, sheet_name='df_strong_results')
-        format_sheet_strong_results(writer.sheets['df_strong_results'])
+        df_results.to_excel(writer, sheet_name='strong_results')
+        format_sheet_strong_results(writer.sheets['strong_results'])
 
 
 
@@ -680,7 +684,7 @@ def compute(df,config):
                     phi_matrix.loc[col1, col2] = 1.0
                 elif df[col1].nunique() > 1 and df[col2].nunique() > 1 and df[col1].count()>MIN_CASES_LIMIT and df[col2].count()>MIN_CASES_LIMIT:
                     if pd.isna(phi_matrix.loc[col1, col2]):
-                        phi = phi_coefficient(df[col1], df[col2])
+                        phi = phi_coefficient(df[col1], df[col2],config)
                         phi_matrix.loc[col1, col2] = phi
                         phi_matrix.loc[col2, col1] = phi  # symmetric
                         strong_results.append([col1,col2,phi,len(df[[col1, col2]].dropna())])
@@ -727,6 +731,14 @@ def main():
         parser_pattern_group.add_argument('--pattern_mask', help='Wildcard pattern to select questions; like "^M*_007"')
         parser.add_argument('--filter', required=False, help='Filter to filter down sample; for example, "DV_LinkType != 2" or "DV_LinkType == 2"')
         parser.add_argument(
+            '--chi2_contingency_correction',
+            required=False,
+            choices=['true','false','default'],
+            default='default',
+            type=str,
+            help='Set correction param for chi2_contingency fn to true/false - with or without Yates correction. Default, built in in tools, is true. It sounds that correction=false is better for 1/0 attributes and gives accurate results, because we are doing "feature correlation for flags, not hypothesis testing". If you pass "default" here, or omit - we mean "false" here. "False" is better for 1/0 flags.'
+        )
+        parser.add_argument(
             '--format',
             default='autodetect',
             help='Data file type, or "autodetect"',
@@ -760,6 +772,19 @@ def main():
         if args.filter:
             group_filter = args.filter
         config['group_filter'] = group_filter
+
+        chi2_contingency_yates_correction = None
+        if args.chi2_contingency_correction:
+            if re.match(r'^\s*true\s*$',args.chi2_contingency_correction,flags=re.I):
+                chi2_contingency_yates_correction = True
+            elif re.match(r'^\s*false\s*$',args.chi2_contingency_correction,flags=re.I):
+                chi2_contingency_yates_correction = False
+            elif not args.chi2_contingency_correction or re.match(r'^\s*default\s*$',args.chi2_contingency_correction,flags=re.I):
+                # chi2_contingency_yates_correction = None
+                chi2_contingency_yates_correction = False # "default" would be now "false"
+            else:
+                raise Exception('--chi2_contingency_correction param value not recognized: "{param}"'.format(param=args.chi2_contingency_correction))
+        config['chi2_contingency_yates_correction'] = chi2_contingency_yates_correction
 
         print('loading input file {f}...'.format(f=input_filename))
         df, meta = read_file('{f}'.format(f=input_filename),format,group_filter)
