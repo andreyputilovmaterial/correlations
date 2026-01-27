@@ -14,9 +14,11 @@ __pycache__/
 report.*
 # Except this file
 !.gitignore
-# !tests/
-!**/test_correlation*
 
+# Ignore virtual environment
+venv/
+.venv/
 
 examples/
 dist/
+# !**/test_correlation*

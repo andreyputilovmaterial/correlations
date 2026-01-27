@@ -162,13 +162,23 @@ def read_file_mdd(input_filename,group_filter):
             self.__category_map_cache[code] = result
             return result
     def clean_data(df,cb_category_map):
-        def mdd_cat_parse(resp):
-            if not resp:
-                return []
-            resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],str(resp))
-            resp = resp.split(',')
-            resp = [int(str(v).strip()) for v in resp if v.strip()]
-            return resp
+        def mdd_cat_parse(val):
+            resp = val
+            try:
+                if not resp:
+                    return []
+                try:
+                    if np.isnan(resp):
+                        return []
+                except:
+                    pass
+                resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],str(resp))
+                resp = resp.split(',')
+                resp = [int(str(v).strip()) for v in resp if v.strip()]
+                return resp
+            except Exception as e:
+                print('ERROR: failed when trying to parse categorical response: "{resp}" of type {resp_type}'.format(resp=val,resp_type=type(val)),file=sys.stderr)
+                raise e
         def normalize_key(v):
             if isinstance(v, (pd.Timestamp, np.datetime64)):
                 return '{v}'.format(v=v)
@@ -195,7 +205,7 @@ def read_file_mdd(input_filename,group_filter):
             mdd_raw_pattern = re.compile(r'^\s*\{\s*(?:\d+(?:\s*,\s*\d+)*)?\s*\}\s*$')
             all_values = { normalize_key(v): True for v in iter_safe(series) }
             col_type = None
-            values_non_blank = [v for v in all_values.keys() if not not (str(v).strip())]
+            values_non_blank = [v for v in all_values.keys() if not not str(v).strip()] # not np.isnan() - keys are already normalized, missing or nans are empty string
             if values_non_blank and all(mdd_raw_pattern.match(str(v)) for v in values_non_blank):
                 col_type = 'categorical'
             if col_type == 'categorical':
@@ -587,7 +597,7 @@ def clean_column_in_dataframe(series):
         col_type = 'multipunch_flag'
     elif len(set(all_values.keys())-{0,1})==0:
         col_type = 'blank'
-    elif all(not (str(v).strip()) or mdd_raw_pattern.match(str(v)) for v in all_values.keys()):
+    elif all(not (str(v).strip()) or mdd_raw_pattern.match(str(v)) for v in all_values.keys()): # all_values have already normalized keys, and None's, missing, or np.nan are already '' - so using not str(v).strip() is good
         col_type = 'categorical_mdd'
     elif all(not (str(v).strip()) or mdd_convertedcatnames_pattern.match(str(v)) for v in all_values.keys()):
         col_type = 'categorical_withconvertedcatnames_mdd'
