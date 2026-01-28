@@ -608,13 +608,17 @@ def clean_column_in_dataframe(series):
     elif col_type == 'blank':
         result['@'] = series.fillna(0).astype(int)
     elif col_type == 'need_categorize':
+        result_frames_append = []
         code_index = 0
         for code, _ in all_values.items():
             values = [ 1 if normalize_key(v)==code else 0 for v in iter_safe(series)]
             # col_name_created = '@_{n}'.format(n=str(code_index).zfill(3))
             col_name_created = '@ =* {n}'.format(n=code)
-            result[col_name_created] = pd.Series(values)
+            s = pd.Series(values, name=col_name_created)
+            # result[col_name_created] = s
+            result_frames_append.append(s)
             code_index += 1
+        result = pd.concat([result]+result_frames_append,axis=1)
     elif col_type=='categorical_mdd':
         def mdd_cat_parse(val):
             resp = val
@@ -679,7 +683,8 @@ def prepare_df(df,cb_pattern_check,config):
     df = df[stub_cols].copy()
 
     # Ensure values are 0/1
-    processed_data = pd.DataFrame()
+    # processed_data = pd.DataFrame() # not efficient
+    processed_data_frames = []
     for col in stub_cols:
         col_name = '{c}'.format(c=col)
         try:
@@ -688,14 +693,19 @@ def prepare_df(df,cb_pattern_check,config):
             result_df = clean_column_in_dataframe(series)
             if len(result_df.columns)>0:
                 assert len([c for c in result_df.columns if not isinstance(c,str)])==0, 'bad columns: [ {c} ]'.format(c=', '.join([c for c in result_df.columns if not isinstance(c,str)]))
-                for col_append,col_appended in zip(result_df.columns.str.replace('@',col_name),result_df.columns):
-                    processed_data[col_append] = result_df[col_appended]
+                # for col_append,col_appended in zip(result_df.columns.str.replace('@',col_name),result_df.columns):
+                #     processed_data[col_append] = result_df[col_appended]
+                result_df = result_df.rename(
+                    columns = lambda m: m.replace('@',col_name)
+                )
+                processed_data_frames.append(result_df)
                 # except Exception as e:
                 #     raise Exception('ERROR: Column "{c}": df should follow the format with values 0/1 (for multi-punch), or numeric. Otherwise we can\'t check for correlations. Failed on column: "{c}". The original error message: "{msg}"'.format(msg=e,c=col_name)) from e
         except Exception as e:
             print('ERROR: Trying to clean column "{c}" and convert to 1/0 number and failed'.format(c=col_name),file=sys.stderr)
             raise e
-    df = processed_data
+    # df = processed_data
+    df = pd.concat(processed_data_frames,axis=1)
     return df
 
 
