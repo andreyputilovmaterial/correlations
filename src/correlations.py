@@ -891,7 +891,6 @@ def main():
             pattern_mask = [p.strip() for p in pattern_mask]
             # pattern_mask = [re.sub(r'(\s+|\*|\?)',find_wildcard_replacement,p) for p in pattern_mask]
             pattern_mask = [re.sub(r'(\s+|\*|\?|[^\w])',find_wildcard_replacement,p) for p in pattern_mask]
-            # pattern_mask = r'\b(?:{parts})\b'.format(parts='|'.join(pattern_mask))
             pattern_mask = r'^(?:{parts})$'.format(parts='|'.join(pattern_mask))
             return pattern_mask
         var_pattern = None
@@ -899,14 +898,14 @@ def main():
         if args.pattern_regex:
             var_pattern = args.pattern_regex
             var_pattern_re = re.compile(var_pattern)
-            cb_pattern_check = lambda col: var_pattern_re.match(col)
+            cb_pattern_check = lambda col: var_pattern_re.search(col)
         if args.pattern_mask:
             var_pattern = args.pattern_mask
             if not re.match(r'^[\w\*\?\,\[\]\{\}\.\s]+$',var_pattern,flags=re.I):
                 raise Exception('ERROR: Pattern mask: wrong format. Only alphanumeric characters, "[", "]", "{", "}", ".", ",", "?", and "*" are allowed: "{p}". Questions/parts can be separated with comma. If you need more flexibility please kindly use --pattern_regex. However, "|" and "^" have special meaning in BAT files and command prompt window - be careful when using pattern_regex'.format(p=var_pattern))
             # cb_pattern_check = lambda col: re.match(r'^'+re.sub(r'\*',r'.*',re.sub(r'\?',r'.',re.sub(r',',r'|',var_pattern)))+r'$', col,flags=re.I)
             var_pattern_re = re.compile(prep_regex_from_pattern_mask(var_pattern))
-            cb_pattern_check = lambda col: var_pattern_re.match(col)
+            cb_pattern_check = lambda col: var_pattern_re.search(col)
         config['var_pattern'] = var_pattern
 
         print('computing...')
