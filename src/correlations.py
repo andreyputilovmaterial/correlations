@@ -630,7 +630,7 @@ def clean_column_in_dataframe(series):
             # result[col_name_created] = s
             result_frames_append.append(s)
             code_index += 1
-        result = pd.concat([result]+result_frames_append,axis=1)
+        result = pd.concat([result]+result_frames_append,axis=1) if len([result]+result_frames_append)>0 else pd.DataFrame() # stupid pandas crashes if concat argument is [], and chatgpt just gave me that code that crashes, and did not tell anything
     elif col_type=='categorical_mdd':
         def mdd_cat_parse(val):
             resp = val
@@ -717,7 +717,7 @@ def prepare_df(df,cb_pattern_check,config):
             print('ERROR: Trying to clean column "{c}" and convert to 1/0 number and failed'.format(c=col_name),file=sys.stderr)
             raise e
     # df = processed_data
-    df = pd.concat(processed_data_frames,axis=1)
+    df = pd.concat(processed_data_frames,axis=1) if len(processed_data_frames)>0 else pd.DataFrame() # stupid pandas crashes if concat argument is [], and chatgpt just gave me that code that crashes, and did not tell anything
     return df
 
 
