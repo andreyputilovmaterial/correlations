@@ -35,7 +35,9 @@ from openpyxl.formatting.rule import FormulaRule, CellIsRule # for styling resul
 
 
 
-MIN_CASES_LIMIT = 8 # hard-coded, for now
+MIN_CASES_LIMIT = 2 # hard-coded, for now
+EXCEL_MAX_COLUMNS = 16384
+EXCEL_MAX_ROWS = 1048576
 
 
 
@@ -441,7 +443,7 @@ def save_results(results,out_filename,config):
             ['Input File:',config['input_filename']],
             ['Run Datetime:','{dt}'.format(dt=config['time_start'])],
             ['Case Data Filter:',config['group_filter']],
-            ['Records within Case Data Filter',config['cases_count']],
+            ['Records within Case Data Filter',config['statistics_cases_count']],
             ['Variable Select Pattern:',config['var_pattern']],
             ['Variables Analyzed:',config['variables_analyzed']],
         ], columns=['name','value']).set_index("name")
@@ -855,7 +857,7 @@ def main():
         #     if group_filter:
         #         df = df.query(group_filter)
         # config['group_filter'] = group_filter
-        # config['cases_count'] = len(df.index)
+        # config['statistics_cases_count'] = len(df.index)
 
         # =============================
         # 2.3. Select and prepare variables
@@ -898,8 +900,8 @@ def main():
         config['var_pattern'] = var_pattern
 
         print('computing...')
-        config['cases_count'] = len(df.index)
-        print('FYI: records in case data within filter: {n}'.format(n=config['cases_count']))
+        config['statistics_cases_count'] = len(df.index)
+        print('FYI: records in case data within filter: {n}'.format(n=config['statistics_cases_count']))
         df = prepare_df(df,cb_pattern_check,config)
         stub_cols = [col for col in df.columns]
         variables_analyzed = '[ {vars} ]'.format(vars=', '.join(['{c}'.format(c=c) for c in stub_cols]))
@@ -912,6 +914,11 @@ def main():
         # =============================
         df = df.copy() # for performance - after cleaning it is highly fragmented
         config['df'] = df
+        # safety check
+        config['statistics_columns_count'] = len(df.columns)
+        print('FYI: columns in the data (1/0 flags): {n}'.format(n=config['statistics_columns_count']))
+        if (config['statistics_columns_count'] > EXCEL_MAX_COLUMNS-1) or (config['statistics_columns_count']*config['statistics_columns_count'] > EXCEL_MAX_ROWS-1):
+            raise Exception('ERROR: number of columns exceeds allowed limits')
         phi_matrix, strong_results = compute(df,config)
         results = {
             'df_phi_matrix': phi_matrix,
