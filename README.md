@@ -11,7 +11,7 @@ This can be used:
 - to inspect data quality (good data will show strong correlations in attributes, low-quality bot-generated or dummy data will not show any correlations)
 - to inspect why weighting groups are not working, if there is no other obvious reason
 
-The tool treats everything as a multi-punch variable. Single-punch or text variables can also be used and are categorized. Everything is converted to 1/0 flag, same as stubs of multi-punch in spss.
+The tool treats everything as a multi-punch variable. Single-punch or text variables can also be used and are categorized. Everything is converted to 1/0 flag, same as stubs of multi-punch in spss. If you have single-punch variables tested, responses within one variables will also be checked for correlations against each other (as each response is 1/0 flag), but you can just ignore those. Some single-punch variables, like WGT_Device, show phi=1 (100%) correlation. Like Mobile and Non-Mobile correlate. Some codeframe vartiables can show phi=0.06 correlation - weak but still positive. Just ignore this, if compared categorories are from the same single-punch variable. Sometimes Mobile and Non-Mobile categories do not show correlation with phi=1 but with phi=0.99876, because of Yates correction. This is normal, but the correction should be off, so expected phi=1. Comparing responses from multi-punch variables normally makes sense - we can compare selected attributes within one single var, so not everything should be ignored. Use common sense.
 
 What you need is that python .py file, but you can also grab the BAT file to launch it easier and adjust for multiple subgroups faster.
 

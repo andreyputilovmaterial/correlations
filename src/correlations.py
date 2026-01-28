@@ -218,10 +218,11 @@ def read_file_mdd(input_filename,group_filter):
         performance_counter = iter(PerformanceMonitor(config={
             'total_records': len(df.columns),
             'report_frequency_records_count': 20,
-            'report_frequency_timeinterval': 6,
+            'report_frequency_timeinterval': 9,
             'report_text_pipein': 'convertig variables',
         }))
         # TODO: why are we converting all, when we don't need all? To waste processing time?
+        # actually, it's not taking as long
         for col in df.columns:
             col_name = '{f}'.format(f=col)
             try:
@@ -540,6 +541,8 @@ class PerformanceMonitor:
                 eta = self._calc_eta(time_now)
                 self._eta = eta
                 self._remaining_seconds = eta-time_now
+                if self._remaining_seconds<9:
+                    return None # do not report if too few secnods remaining
                 if self._remaining_seconds > 90 and self.config_frequency_timeinterval is not None and self.config_frequency_timeinterval<11:
                     self.config_frequency_timeinterval = 11
                     # print('debug: remaining time too long, adjusting update interval to {n} seconds'.format(n=self.config_frequency_timeinterval))
@@ -731,8 +734,8 @@ def compute(df,config):
     print('using chi2_contingency()...')
     performance_counter = iter(PerformanceMonitor(config={
         'total_records': len(stub_cols)**2,
-        'report_frequency_records_count': 20,
-        'report_frequency_timeinterval': 6
+        'report_frequency_records_count': 199,
+        'report_frequency_timeinterval': 9
     }))
     for col1 in stub_cols:
         for col2 in stub_cols:
@@ -762,8 +765,8 @@ def compute(df,config):
 
     strong_results = sorted(strong_results,key=lambda a:-a[2])
     PHI_THRESHOLD = 0.01
-    PHI_THRESHOLD_LIMIT = len(stub_cols)**2+999 # this was designed to limit output to first n records, like when it is printed in command line... But we don't have to limit, we can print all. So I set the limit to something higher than theoretically possible
-    if len(strong_results)>PHI_THRESHOLD_LIMIT:
+    PHI_THRESHOLD_LIMIT = None # this was designed to limit output to first n records, like when it is printed in command line... But we don't have to limit, we can print all. So I set the limit to something higher than theoretically possible
+    if PHI_THRESHOLD_LIMIT is not None and len(strong_results)>PHI_THRESHOLD_LIMIT:
         if strong_results[PHI_THRESHOLD_LIMIT][2]>PHI_THRESHOLD:
             strong_results = [r for r in strong_results if r[2]>PHI_THRESHOLD]
         else:
