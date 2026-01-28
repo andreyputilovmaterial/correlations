@@ -504,6 +504,8 @@ class PerformanceMonitor:
         self.config_frequency_records = config['report_frequency_records_count'] if 'report_frequency_records_count' in config else None
         self.config_frequency_timeinterval = config['report_frequency_timeinterval'] if 'report_frequency_timeinterval' in config else None
         self.config_text_pipein = config['report_text_pipein'] if 'report_text_pipein' in config and config['report_text_pipein'] else 'progress'
+        self._eta = None
+        self._remaining_seconds = None
     def __iter__(self):
         self.progress = 0
         self.time_started = time.time()
@@ -536,6 +538,14 @@ class PerformanceMonitor:
             time_now = time.time()
             if (self.config_frequency_timeinterval is None) or ((time_now - self.time_last_reported)>self.config_frequency_timeinterval):
                 eta = self._calc_eta(time_now)
+                self._eta = eta
+                self._remaining_seconds = eta-time_now
+                if self._remaining_seconds > 90 and self.config_frequency_timeinterval is not None and self.config_frequency_timeinterval<11:
+                    self.config_frequency_timeinterval = 11
+                    # print('debug: remaining time too long, adjusting update interval to {n} seconds'.format(n=self.config_frequency_timeinterval))
+                if self._remaining_seconds > 900 and self.config_frequency_timeinterval is not None and self.config_frequency_timeinterval<56:
+                    self.config_frequency_timeinterval = 56
+                    # print('debug: remaining time too long, adjusting update interval to {n} seconds'.format(n=self.config_frequency_timeinterval))
                 print( '{text_pipe}: processing {nline}{display_out_total}{display_details}'.format(
                     nline = self.progress,
                     display_out_total = ' / {nlinetotal}'.format(nlinetotal=self.userprovideddata_totalrecords) if (self.userprovideddata_totalrecords is not None) else '',
