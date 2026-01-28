@@ -19,6 +19,9 @@ report.*
 venv/
 .venv/
 
+# The .vscode folder
+.vscode/
+
 examples/
 dist/
 # !**/test_correlation*

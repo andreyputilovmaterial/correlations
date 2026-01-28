@@ -616,11 +616,23 @@ def clean_column_in_dataframe(series):
             result[col_name_created] = pd.Series(values)
             code_index += 1
     elif col_type=='categorical_mdd':
-        def mdd_cat_parse(resp):
-            resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],resp)
-            resp = resp.split(',')
-            resp = [int(str(v).strip()) for v in resp if v.strip()]
-            return resp
+        def mdd_cat_parse(val):
+            resp = val
+            try:
+                if not resp:
+                    return []
+                try:
+                    if np.isnan(resp):
+                        return []
+                except:
+                    pass
+                resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],str(resp))
+                resp = resp.split(',')
+                resp = [int(str(v).strip()) for v in resp if v.strip()]
+                return resp
+            except Exception as e:
+                print('ERROR: failed when trying to parse categorical response: "{resp}" of type {resp_type}'.format(resp=val,resp_type=type(val)),file=sys.stderr)
+                raise e
         all_values = { normalize_key(v): True for resp in iter_safe(series) for v in mdd_cat_parse(resp) }
         code_index = 0
         for code, _ in all_values.items():
@@ -630,11 +642,23 @@ def clean_column_in_dataframe(series):
             result[col_name_created] = pd.Series(values)
             code_index += 1
     elif col_type=='categorical_withconvertedcatnames_mdd':
-        def mdd_cat_parse(resp):
-            resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],resp)
-            resp = resp.split(',')
-            resp = [str(v).strip() for v in resp if v.strip()]
-            return resp
+        def mdd_cat_parse(val):
+            resp = val
+            try:
+                if not resp:
+                    return []
+                try:
+                    if np.isnan(resp):
+                        return []
+                except:
+                    pass
+                resp = re.sub(r'^\s*\{\s*(.*?)\s*\}\s*$',lambda m: m[1],str(resp))
+                resp = resp.split(',')
+                resp = [str(v).strip() for v in resp if v.strip()]
+                return resp
+            except Exception as e:
+                print('ERROR: failed when trying to parse categorical response: "{resp}" of type {resp_type}'.format(resp=val,resp_type=type(val)),file=sys.stderr)
+                raise e
         all_values = { normalize_key(v): True for resp in iter_safe(series) for v in mdd_cat_parse(resp) }
         code_index = 0
         for code, _ in all_values.items():
@@ -648,9 +672,9 @@ def clean_column_in_dataframe(series):
 
     return result
 
-def prepare_df(df,pattern_check,config):
+def prepare_df(df,cb_pattern_check,config):
     print('preparing df (selecting variables)...')
-    stub_cols = [col for col in df.columns if pattern_check(col)]
+    stub_cols = [col for col in df.columns if cb_pattern_check(col)]
     print('FYI variables we take for analysis: [ {vars} ]'.format(vars=', '.join(['{c}'.format(c=c) for c in stub_cols])))
     df = df[stub_cols].copy()
 
@@ -662,10 +686,12 @@ def prepare_df(df,pattern_check,config):
             series = df[col]
             # try:
             result_df = clean_column_in_dataframe(series)
-            for col_append,col_appended in zip(result_df.columns.str.replace('@',col_name),result_df.columns):
-                processed_data[col_append] = result_df[col_appended]
-            # except Exception as e:
-            #     raise Exception('ERROR: Column "{c}": df should follow the format with values 0/1 (for multi-punch), or numeric. Otherwise we can\'t check for correlations. Failed on column: "{c}". The original error message: "{msg}"'.format(msg=e,c=col_name)) from e
+            if len(result_df.columns)>0:
+                assert len([c for c in result_df.columns if not isinstance(c,str)])==0, 'bad columns: [ {c} ]'.format(c=', '.join([c for c in result_df.columns if not isinstance(c,str)]))
+                for col_append,col_appended in zip(result_df.columns.str.replace('@',col_name),result_df.columns):
+                    processed_data[col_append] = result_df[col_appended]
+                # except Exception as e:
+                #     raise Exception('ERROR: Column "{c}": df should follow the format with values 0/1 (for multi-punch), or numeric. Otherwise we can\'t check for correlations. Failed on column: "{c}". The original error message: "{msg}"'.format(msg=e,c=col_name)) from e
         except Exception as e:
             print('ERROR: Trying to clean column "{c}" and convert to 1/0 number and failed'.format(c=col_name),file=sys.stderr)
             raise e
@@ -738,7 +764,7 @@ def main():
         parser.add_argument('--outfile', required=False, help='Output Excel file with results')
         parser_pattern_group = parser.add_mutually_exclusive_group(required=True)
         parser_pattern_group.add_argument('--pattern_regex', help='Regex pattern to select questions; like "^M(?:5|6|7|8|9)_\d{3}_007"')
-        parser_pattern_group.add_argument('--pattern_mask', help='Wildcard pattern to select questions; like "^M*_007"')
+        parser_pattern_group.add_argument('--pattern_mask', help='Wildcard pattern to select questions; like "^M*_007". Questions can be passed comma-separated')
         parser.add_argument('--filter', required=False, help='Filter to filter down sample; for example, "DV_LinkType != 2" or "DV_LinkType == 2"')
         parser.add_argument(
             '--chi2_contingency_correction',
@@ -824,22 +850,47 @@ def main():
         # =============================
         # 2.3. Select and prepare variables
         # =============================
+        def prep_regex_from_pattern_mask(val):
+            def find_wildcard_replacement(matches):
+                matched_piece = matches[1]
+                if re.match(r'\s+',matched_piece):
+                    return r'\s*'
+                elif re.match(r'\*',matched_piece):
+                    return r'.*'
+                elif re.match(r'\?',matched_piece):
+                    return r'.'
+                elif re.match(r'[\[\]\{\}\.]',matched_piece):
+                    return r'{esc}{char}'.format(esc='\\',char=matched_piece)
+                else:
+                    raise Exception('ERROR: Preparing pattern_mask: unrecognized mask, please check: {f}'.format(f=matched_piece))
+            pattern_mask = val
+            pattern_mask = '{s}'.format(s=pattern_mask)
+            pattern_mask = pattern_mask.split(',')
+            pattern_mask = [p.strip() for p in pattern_mask]
+            # pattern_mask = [re.sub(r'(\s+|\*|\?)',find_wildcard_replacement,p) for p in pattern_mask]
+            pattern_mask = [re.sub(r'(\s+|\*|\?|[^\w])',find_wildcard_replacement,p) for p in pattern_mask]
+            # pattern_mask = r'\b(?:{parts})\b'.format(parts='|'.join(pattern_mask))
+            pattern_mask = r'^(?:{parts})$'.format(parts='|'.join(pattern_mask))
+            return pattern_mask
         var_pattern = None
-        pattern_check = lambda col: True
+        cb_pattern_check = lambda col: True
         if args.pattern_regex:
             var_pattern = args.pattern_regex
-            pattern_check = lambda col: re.match(var_pattern, col,flags=re.I)
+            var_pattern_re = re.compile(var_pattern)
+            cb_pattern_check = lambda col: var_pattern_re.match(col)
         if args.pattern_mask:
             var_pattern = args.pattern_mask
-            if not re.match(r'^[\w\*\?]+$',var_pattern,flags=re.I):
-                raise Exception('Pattern mask format: only alphanumeric characters, "?" and "*" are allowed: "{p}". If you need more flexibility please kindly use --pattern_regex'.format(p=var_pattern))
-            pattern_check = lambda col: re.match(r'^'+re.sub(r'\*','.*',re.sub(r'\?','.',var_pattern))+r'$', col,flags=re.I)
+            if not re.match(r'^[\w\*\?\,\[\]\{\}\.\s]+$',var_pattern,flags=re.I):
+                raise Exception('ERROR: Pattern mask: wrong format. Only alphanumeric characters, "[", "]", "{", "}", ".", ",", "?", and "*" are allowed: "{p}". Questions/parts can be separated with comma. If you need more flexibility please kindly use --pattern_regex. However, "|" and "^" have special meaning in BAT files and command prompt window - be careful when using pattern_regex'.format(p=var_pattern))
+            # cb_pattern_check = lambda col: re.match(r'^'+re.sub(r'\*',r'.*',re.sub(r'\?',r'.',re.sub(r',',r'|',var_pattern)))+r'$', col,flags=re.I)
+            var_pattern_re = re.compile(prep_regex_from_pattern_mask(var_pattern))
+            cb_pattern_check = lambda col: var_pattern_re.match(col)
         config['var_pattern'] = var_pattern
 
         print('computing...')
         config['cases_count'] = len(df.index)
         print('FYI: records in case data within filter: {n}'.format(n=config['cases_count']))
-        df = prepare_df(df,pattern_check,config)
+        df = prepare_df(df,cb_pattern_check,config)
         stub_cols = [col for col in df.columns]
         variables_analyzed = '[ {vars} ]'.format(vars=', '.join(['{c}'.format(c=c) for c in stub_cols]))
         config['variables_analyzed'] = variables_analyzed
@@ -849,6 +900,7 @@ def main():
         # =============================
         # 3. Compute Phi correlation matrix
         # =============================
+        df = df.copy() # for performance - after cleaning it is highly fragmented
         config['df'] = df
         phi_matrix, strong_results = compute(df,config)
         results = {
@@ -865,7 +917,8 @@ def main():
         if args.outfile:
             out_filename = Path(args.outfile)
         else:
-            out_filename = Path('{f}_correlations.xlsx'.format(f=re.sub(r'\.(?:sav|spss)\s*?$','','{f}'.format(f=input_filename))))
+            # out_filename = Path('{f}_correlations.xlsx'.format(f=re.sub(r'\.(?:sav|spss)\s*?$','','{f}'.format(f=input_filename))))
+            out_filename = Path(input_filename).with_name('{f}_correlations.xlsx'.format(f=Path(input_filename).stem))
         out_filename = Path.resolve(out_filename)
         config['out_filename'] = out_filename
 

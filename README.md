@@ -11,29 +11,29 @@ This can be used:
 - to inspect data quality (good data will show strong correlations in attributes, low-quality bot-generated or dummy data will not show any correlations)
 - to inspect why weighting groups are not working, if there is no other obvious reason
 
-The tool can only inspect multi-punch variables. Technically, anuthing that is a number is working (all categoricals in spss).
+The tool treats everything as a multi-punch variable. Single-punch or text variables can also be used and are categorized. Everything is converted to 1/0 flag, same as stubs of multi-punch in spss.
 
 What you need is that python .py file, but you can also grab the BAT file to launch it easier and adjust for multiple subgroups faster.
 
 Input parameters are:  
-`--inpfile` the path to your SPSS file  
-`--outfile` the desired file name for the resulting excel (can be omitted)  
-`--pattern_regex` or `--pattern_mask` (one of those 2 is required)  
-`--pattern_regex` the regex pattern to select variables. For example, if you need to look at M5-M9 which are multi-punch within a loop with brands, and variable names in spss are M5\_(3-digit attribute code)\_(3-digit brand code), and you only need to check brand 001, the pattern would be `--pattern_regex "^M(?:5|6|7|8|9)_\d{3}_001$"`  
-`--pattern_mask` the wildcarded pattern to select variables. "`?`" stands for any one single character, "`*`" stands for any sequence (including empty) of characters. This approach is for those non-technical-savvy who struggle adjusting regular expressions. But this is very limited in its functionality. For example, you need to test all variables in M5, M6, M7, M8, M9 batteries. What can you do? Filter `M*_001`? This way you also test M1, M2, M3, M4... Or, use `M5*_001` pattern? Then you are only testing attributes within M5 and testing it against each other but not against attributes from M6, M7, M8, M9.  
-`--filter` data filter expression. For example, `--filter "DV_LinkType==2"` or `--filter "DV_LinkType!=2"`<br>Syntax used is what is used for pandas.query(), or pandas.eval(): "==" for checking if something is equal, "!=" for not equal, "&" for "and" and "&" for "or". Besides that, normal arithmetic, boolean, comparison operators can be used, common functions - see https://pandas.pydata.org/docs/reference/api/pandas.eval.html#pandas.eval
-`--chi2_contingency_correction` is an optional flag to set Yates correction to true or false. If not passed, "false" is used, as it's better for 1/0  flags. However, as scipy tools are defined, the default is correction=true. But we are using correction=false here, if not overriden with this param here
+- **`--inpfile`** the path to your MDD or SPSS file  
+- **`--outfile`** the desired file name for the resulting excel (can be omitted)  
+- **`--pattern_regex`** or **`--pattern_mask`** (one of those 2 is required)  
+    - **`--pattern_regex`** is the regex pattern to select variables. Advanced way to provide flexible syntax to select variables. For example, if you need to look at M5-M9 which are multi-punch within a loop with brands, and variable names in spss are M5\_(3-digit attribute code)\_(3-digit brand code), and you only need to check brand 001 - the pattern would be `--pattern_regex "^M(?:5|6|7|8|9)_\d{3}_001$"`. Note: if providing this from BAT file or command prompt, some characters have special meaning. For example, `|` and `^`. Use carefully. 
+    - **`--pattern_mask`** the wildcarded pattern to select variables, with variables separated with comma. For example, `DV_AgeGender,DV_BannerWGT,SampleProvider,BrandLoop[{Tesla}].KidGender`. "`?`" stands for any one single character, "`*`" stands for any sequence (including empty) of characters.  
+- **`--filter`** data filter expression.<br>In MDD, just pass the normal expression, as you do. For example, "`DV_LinkType.ContainsAny({Adult})`"<br>In SPSS, as an example, the expression could be `--filter "DV_LinkType==2"` or `--filter "DV_LinkType!=2"`. Syntax used is what is used for pandas.query(), or pandas.eval(): "==" for checking if something is equal, "!=" for not equal, "&" for "and" and "&" for "or". Besides that, normal arithmetic, boolean, comparison operators can be used, common functions - see https://pandas.pydata.org/docs/reference/api/pandas.eval.html#pandas.eval
+- **`--chi2_contingency_correction`** is an optional flag to set Yates correction to true or false. If not passed, "false" is used, as it's better for 1/0  flags. However, as scipy tools are defined, the default is correction=true. But we are using correction=false here, if not overriden with this param here
 
 ## How to use:
 
 Download files from the latest Release page:
 [Releases](../../releases/latest)
 
-Then edit parameters in the bat file - add as many calls as you need. Update paths to spss, data filters, output file name, etc... Just follow the same example as what you see in that bat file. Currently there are 10 calls for amazon 2401543
+See the BAT files provided as an example.
 
 Enjoy.
 
 If some python packages are missing (the script has minimum requirements but it needs pandas, numpy, openpyxl, scipy, pathlib, arglib, etc..), just type
-`python -m pip install xxx`
-where xxx is a missing package.
+`python -m pip install -r requirements.txt`
+
 
