@@ -251,8 +251,15 @@ def read_file_mdd(input_filename,group_filter):
                 oconnection.Open("Provider=mrOleDB.Provider.2;Data Source=mrDataFileDsc;Location="+sanitize_name_for_sql_string(input_filename_data)+";Initial Catalog="+sanitize_name_for_sql_string(input_filename_mdd)+";MR Init MDM Access=0;")
                 orecordset.Open("SELECT * FROM VDATA WHERE " + sanitize_name_for_sql_string(sfilter) , oconnection)
                 cols = [orecordset.Fields(i).Name for i in range(orecordset.Fields.Count)]
-                data = orecordset.GetRows()
-                df = pd.DataFrame(list(zip(*data)),columns=cols)
+                if orecordset.EOF:
+                    # No records matched the filter; GetRows() would raise an unhelpful
+                    # ADODB error ("Either BOF or EOF is True..."). Return a legal empty
+                    # dataframe (with the correct columns) so the pipeline can continue.
+                    print('FYI: no records returned for the filter "{f}"; continuing with an empty dataset.'.format(f=sfilter))
+                    df = pd.DataFrame(columns=cols)
+                else:
+                    data = orecordset.GetRows()
+                    df = pd.DataFrame(list(zip(*data)),columns=cols)
                 # if group_filter:
                 #     print('query data with filter {f}...'.format(f=group_filter))
                 #     df = df.query(group_filter)
@@ -788,7 +795,7 @@ def main():
         parser.add_argument('--inpfile', required=True, help='Input SPSS data file')
         parser.add_argument('--outfile', required=False, help='Output Excel file with results')
         parser_pattern_group = parser.add_mutually_exclusive_group(required=True)
-        parser_pattern_group.add_argument('--pattern_regex', help='Regex pattern to select questions; like "^M(?:5|6|7|8|9)_\d{3}_007"')
+        parser_pattern_group.add_argument('--pattern_regex', help='Regex pattern to select questions; like "^M(?:5|6|7|8|9)_\\d{3}_007"')
         parser_pattern_group.add_argument('--pattern_mask', help='Wildcard pattern to select questions; like "^M*_007". Questions can be passed comma-separated')
         parser.add_argument('--filter', required=False, help='Filter to filter down sample; for example, "DV_LinkType != 2" or "DV_LinkType == 2"')
         parser.add_argument(
