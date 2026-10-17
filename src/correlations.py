@@ -501,6 +501,8 @@ def save_results(results,out_filename,config):
             col_letter = col[0].column_letter  # Get the column letter (e.g., 'A', 'B', etc.)
             # sheet.column_dimensions[col_letter].width = 80
         sheet.column_dimensions['A'].width = 35
+        sheet.column_dimensions['B'].width = 25
+        sheet.column_dimensions['C'].width = 25
         sheet.row_dimensions[1].height = 21
     df_phi_matrix = results['df_phi_matrix']
     df_strong_results = results['df_strong_results']
@@ -521,7 +523,7 @@ def save_results(results,out_filename,config):
         df_phi_matrix.to_excel(writer, sheet_name='phi_coefficients')
         format_sheet_phi_coefficients(writer.sheets['phi_coefficients'])
         # df_strong_results sheet
-        df_results = pd.DataFrame([[f"{i} vs {j}",phi,count] for i,j,phi,count in df_strong_results], columns=['pair','phi','cases']).set_index("pair")
+        df_results = pd.DataFrame([[f"{i} vs {j}",i,j,phi,count] for i,j,phi,count in df_strong_results], columns=['pair','left_var','right_var','phi','cases']).set_index("pair")
         df_results.to_excel(writer, sheet_name='strong_results')
         format_sheet_strong_results(writer.sheets['strong_results'])
 
