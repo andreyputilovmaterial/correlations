@@ -250,6 +250,18 @@ def read_file_mdd(input_filename,group_filter):
             try:
                 orecordset = win32com.client.Dispatch('ADODB.Recordset')
                 oconnection.Open("Provider=mrOleDB.Provider.2;Data Source=mrDataFileDsc;Location="+sanitize_name_for_sql_string(input_filename_data)+";Initial Catalog="+sanitize_name_for_sql_string(input_filename_mdd)+";MR Init MDM Access=0;")
+                # Best-effort total row count, used for accurate progress reporting below.
+                # Not required for correctness; if it fails we fall back to reporting only
+                # the running count of rows processed.
+                total_records = None
+                try:
+                    ocountset = oconnection.Execute('SELECT COUNT(*) FROM VDATA WHERE ' + sanitize_name_for_sql_string(sfilter))
+                    if not ocountset.EOF:
+                        total_records = int(ocountset.Fields(0).Value)
+                    ocountset.Close()
+                    ocountset = None
+                except Exception:
+                    pass
                 orecordset.Open("SELECT * FROM VDATA WHERE " + sanitize_name_for_sql_string(sfilter) , oconnection)
                 cols = [orecordset.Fields(i).Name for i in range(orecordset.Fields.Count)]
                 if orecordset.EOF:
@@ -259,6 +271,12 @@ def read_file_mdd(input_filename,group_filter):
                     print('FYI: no records returned for the filter "{f}"; continuing with an empty dataset.'.format(f=sfilter))
                     df = pd.DataFrame(columns=cols)
                 else:
+                    performance_counter = iter(PerformanceMonitor(config={
+                        'total_records': total_records,
+                        'report_frequency_records_count': 1,
+                        'report_frequency_timeinterval': 9,
+                        'report_text_pipein': 'reading rows',
+                    }))
                     # Stream the result in batches instead of calling GetRows() with no
                     # argument (which asks the provider for ALL rows in one giant allocation
                     # and is what triggers "Not enough memory resources" on large data).
@@ -271,7 +289,9 @@ def read_file_mdd(input_filename,group_filter):
                         chunk = orecordset.GetRows(ADODB_ROWS_PER_FETCH)
                         for col, values in zip(cols, chunk):
                             col_data[col].extend(values)
+                        performance_counter.step(len(chunk[0]))
                     df = pd.DataFrame(col_data)
+                print('ADODB data loaded: {rows} rows x {cols} columns'.format(rows=len(df.index), cols=len(df.columns)))
                 # if group_filter:
                 #     print('query data with filter {f}...'.format(f=group_filter))
                 #     df = df.query(group_filter)
@@ -542,6 +562,9 @@ class PerformanceMonitor:
         time_started = self.time_started
         return calc_eta(time_started,time_now,self.userprovideddata_totalrecords,self.progress)
     def __next__(self):
+        self.step(1)
+        return None
+    def step(self, n=1):
         def fmt_duration(seconds):
             def fmt(v):
                 v = '{v}'.format(v=v)
@@ -553,21 +576,24 @@ class PerformanceMonitor:
                     return '{n} minutes'.format(n=fmt(0.1*int(seconds/6)))
                 else:
                     return '{n} hours'.format(n=fmt(0.1*int(seconds/360)))
-        self.progress = self.progress + 1
+        self.progress = self.progress + n
         if (self.config_frequency_records is None) or (self.progress - self.progress_last_reported > self.config_frequency_records):
             time_now = time.time()
             if (self.config_frequency_timeinterval is None) or ((time_now - self.time_last_reported)>self.config_frequency_timeinterval):
                 eta = self._calc_eta(time_now)
                 self._eta = eta
-                self._remaining_seconds = eta-time_now
-                if self._remaining_seconds<9:
-                    return None # do not report if too few secnods remaining
-                if self._remaining_seconds > 90 and self.config_frequency_timeinterval is not None and self.config_frequency_timeinterval<11:
-                    self.config_frequency_timeinterval = 11
-                    # print('debug: remaining time too long, adjusting update interval to {n} seconds'.format(n=self.config_frequency_timeinterval))
-                if self._remaining_seconds > 900 and self.config_frequency_timeinterval is not None and self.config_frequency_timeinterval<56:
-                    self.config_frequency_timeinterval = 56
-                    # print('debug: remaining time too long, adjusting update interval to {n} seconds'.format(n=self.config_frequency_timeinterval))
+                if eta is not None:
+                    self._remaining_seconds = eta-time_now
+                    if self._remaining_seconds<9:
+                        return None # do not report if too few secnods remaining
+                    if self._remaining_seconds > 90 and self.config_frequency_timeinterval is not None and self.config_frequency_timeinterval<11:
+                        self.config_frequency_timeinterval = 11
+                        # print('debug: remaining time too long, adjusting update interval to {n} seconds'.format(n=self.config_frequency_timeinterval))
+                    if self._remaining_seconds > 900 and self.config_frequency_timeinterval is not None and self.config_frequency_timeinterval<56:
+                        self.config_frequency_timeinterval = 56
+                        # print('debug: remaining time too long, adjusting update interval to {n} seconds'.format(n=self.config_frequency_timeinterval))
+                else:
+                    self._remaining_seconds = None
                 print( '{text_pipe}: processing {nline}{display_out_total}{display_details}'.format(
                     nline = self.progress,
                     display_out_total = ' / {nlinetotal}'.format(nlinetotal=self.userprovideddata_totalrecords) if (self.userprovideddata_totalrecords is not None) else '',
@@ -802,9 +828,9 @@ def main():
         script_name = 'test correlations'
 
         parser = argparse.ArgumentParser(
-            description='A program to check correlations in spss data'
+            description='A program to check correlations in the data'
         )
-        parser.add_argument('--inpfile', required=True, help='Input SPSS data file')
+        parser.add_argument('--inpfile', required=True, help='Input data file (of various supported formats)')
         parser.add_argument('--outfile', required=False, help='Output Excel file with results')
         parser_pattern_group = parser.add_mutually_exclusive_group(required=True)
         parser_pattern_group.add_argument('--pattern_regex', help='Regex pattern to select questions; like "^M(?:5|6|7|8|9)_\\d{3}_007"')
