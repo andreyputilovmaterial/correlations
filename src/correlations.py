@@ -800,20 +800,31 @@ def prepare_df(df,cb_pattern_check,config):
 def compute(df,config):
 
     stub_cols = [col for col in df.columns]
+    cols_count = len(stub_cols)
+    col_current_index = 0
+
 
     phi_matrix = pd.DataFrame(index=stub_cols, columns=stub_cols, dtype=float)
     strong_results = []
 
     print('using chi2_contingency()...')
+    # Work is triangular: phi is computed once per off-diagonal pair (the upper
+    # triangle), while the diagonal is just set to 1 and the mirrored cells are
+    # already populated (the pass branch). So total work is n*(n-1)/2, not n*n.
+    # Counting every iteration as "1" made the ETA drift, because later rows do
+    # progressively less work. So we count only the actual phi computations.
     performance_counter = iter(PerformanceMonitor(config={
-        'total_records': len(stub_cols)**2,
+        # 'total_records': n_cols**2,
+        # 'total_records': max(0, n_cols*(n_cols-1)//2),
+        'total_records': cols_count*(cols_count-1)/2,
         'report_frequency_records_count': 199,
         'report_frequency_timeinterval': 9
     }))
     for col1 in stub_cols:
+        performance_counter.step(cols_count - col_current_index - 1)
         for col2 in stub_cols:
             try:
-                next(performance_counter)
+                # next(performance_counter)
                 if (col1 == col2):
                     phi_matrix.loc[col1, col2] = 1.0
                 elif df[col1].nunique() > 1 and df[col2].nunique() > 1 and df[col1].count()>MIN_CASES_LIMIT and df[col2].count()>MIN_CASES_LIMIT:
@@ -822,6 +833,7 @@ def compute(df,config):
                         phi_matrix.loc[col1, col2] = phi
                         phi_matrix.loc[col2, col1] = phi  # symmetric
                         strong_results.append([col1,col2,phi,len(df[[col1, col2]].dropna())])
+                        # next(performance_counter)
                     else:
                         # should have been already populated
                         pass
@@ -831,6 +843,7 @@ def compute(df,config):
             except Exception as e:
                 print('Error: failed when processing `{f1}` and `{f2}` variables'.format(f1=col1,f2=col2),file=sys.stderr)
                 raise e
+        col_current_index += 1
     
     # sort
     is_identical = lambda col1,col2,*args:(col1 == col2)
