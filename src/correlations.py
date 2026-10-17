@@ -61,7 +61,7 @@ def phi_coefficient(x, y, config):
 
 
 
-def read_file_pyreadstat(input_filename,group_filter):
+def read_file_pyreadstat(input_filename,group_filter,cb_pattern_check=None):
     input_filename = Path.resolve(input_filename)
     if not(Path(input_filename).is_file()):
         raise FileNotFoundError('file not found: {fname}'.format(fname=input_filename))
@@ -75,7 +75,7 @@ def read_file_pyreadstat(input_filename,group_filter):
         df = df.query(group_filter)
     return df, meta
 
-def read_file_mdd(input_filename,group_filter):
+def read_file_mdd(input_filename,group_filter,cb_pattern_check=None):
     def sanitize_name_for_sql_string(n):
         return '{n}'.format(n=n).replace('"','')
     # def should_process_column(col):
@@ -233,7 +233,7 @@ def read_file_mdd(input_filename,group_filter):
                 print('MDD: trying to convert categories: failed on column "{c}"'.format(c=col_name,file=sys.stderr))
                 raise e
         return df
-    def read_data(input_filename,group_filter):
+    def read_data(input_filename,group_filter,cb_pattern_check=None):
         input_filename = Path.resolve(input_filename)
         input_filename_mdd = Path(input_filename).with_suffix('.mdd').resolve()
         if not input_filename_mdd.is_file():
@@ -250,19 +250,46 @@ def read_file_mdd(input_filename,group_filter):
             try:
                 orecordset = win32com.client.Dispatch('ADODB.Recordset')
                 oconnection.Open("Provider=mrOleDB.Provider.2;Data Source=mrDataFileDsc;Location="+sanitize_name_for_sql_string(input_filename_data)+";Initial Catalog="+sanitize_name_for_sql_string(input_filename_mdd)+";MR Init MDM Access=0;")
+                # Determine which columns to load. If a pattern filter was provided, probe
+                # the schema (zero rows) to get the column list, run the same cb_pattern_check
+                # used later in prepare_df, and select only the matching columns. This avoids
+                # pulling the entire (potentially very wide) VDATA table into memory when only
+                # a subset of columns is actually needed.
+                cols_to_select = None # None means "load all columns" (SELECT *)
+                if cb_pattern_check is not None:
+                    ometa = win32com.client.Dispatch('ADODB.Recordset')
+                    ometa.Open('SELECT * FROM VDATA WHERE 1=0', oconnection)
+                    cols_all = [ometa.Fields(i).Name for i in range(ometa.Fields.Count)]
+                    ometa.Close()
+                    ometa = None
+                    cols_to_select = [c for c in cols_all if cb_pattern_check(c)]
+                    print('FYI: column pattern matched {n} of {m} columns'.format(n=len(cols_to_select), m=len(cols_all)))
+                if cols_to_select is not None and len(cols_to_select) == 0:
+                    # No columns matched the pattern. That is a valid (empty) result, so we
+                    # return an empty dataframe without querying any data.
+                    print('FYI: no columns matched the pattern; continuing with an empty set of columns.')
+                    df = pd.DataFrame()
+                    return df, None # "finally" will run anyway
                 # Best-effort total row count, used for accurate progress reporting below.
                 # Not required for correctness; if it fails we fall back to reporting only
                 # the running count of rows processed.
                 total_records = None
+                # try:
+                #     ocountset = oconnection.Execute('SELECT COUNT(*) FROM VDATA WHERE ' + sanitize_name_for_sql_string(sfilter))
+                #     if not ocountset.EOF:
+                #         total_records = int(ocountset.Fields(0).Value)
+                #     ocountset.Close()
+                #     ocountset = None
+                # except Exception:
+                #     pass
+                if cols_to_select:
+                    select_sql = 'SELECT ' + ', '.join(cols_to_select) + ' FROM VDATA WHERE ' + sanitize_name_for_sql_string(sfilter)
+                else:
+                    select_sql = "SELECT * FROM VDATA WHERE " + sanitize_name_for_sql_string(sfilter)
                 try:
-                    ocountset = oconnection.Execute('SELECT COUNT(*) FROM VDATA WHERE ' + sanitize_name_for_sql_string(sfilter))
-                    if not ocountset.EOF:
-                        total_records = int(ocountset.Fields(0).Value)
-                    ocountset.Close()
-                    ocountset = None
-                except Exception:
-                    pass
-                orecordset.Open("SELECT * FROM VDATA WHERE " + sanitize_name_for_sql_string(sfilter) , oconnection)
+                    orecordset.Open(select_sql, oconnection)
+                except Exception as e:
+                    raise Exception('ERROR: failed to select the requested columns. Some column names may not be accepted by the provider as-is. Offending SQL: "{sql}". Original error: {msg}'.format(sql=select_sql, msg=e))
                 cols = [orecordset.Fields(i).Name for i in range(orecordset.Fields.Count)]
                 if orecordset.EOF:
                     # No records matched the filter; GetRows() would raise an unhelpful
@@ -314,22 +341,22 @@ def read_file_mdd(input_filename,group_filter):
     print('reading MDD/DDF...')
     # return clean_data(read_data(input_filename,group_filter))
     mdmdoc = MDDDocument(Path.resolve(input_filename).with_suffix('.mdd'))
-    df, meta = read_data(input_filename,group_filter)
+    df, meta = read_data(input_filename,group_filter,cb_pattern_check)
     df = clean_data(df,cb_category_map=lambda code: mdmdoc.code_to_category_name(code)) # mdmdoc.CategoryMap.ValueToName(int(2011))
     return df, meta
 
-def read_file_oledb(input_filename,group_filter):
+def read_file_oledb(input_filename,group_filter,cb_pattern_check=None):
     input_filename = Path.resolve(input_filename)
     if not(Path(input_filename).is_file()):
         raise FileNotFoundError('file not found: {fname}'.format(fname=input_filename))
     print('reading file with OLDEBD connection...')
-    raise Exception('This reading method is not implemented yet')
+    raise NotImplementedError('This reading method is not implemented yet')
 
-def read_file_notimplemented_placeholder_future(input_filename,group_filter):
+def read_file_notimplemented_placeholder_future(input_filename,group_filter,cb_pattern_check=None):
     input_filename = Path.resolve(input_filename)
     if not(Path(input_filename).is_file()):
         raise FileNotFoundError('file not found: {fname}'.format(fname=input_filename))
-    raise Exception('This reading method is not implemented yet')
+    raise NotImplementedError('This reading method is not implemented yet')
 
 
 readers = {
@@ -340,7 +367,7 @@ readers = {
 }
 
 
-def read_file(input_filename,format=None,group_filter=None):
+def read_file(input_filename,format=None,group_filter=None,cb_pattern_check=None):
 
     reader = None
     input_filename = Path(input_filename)
@@ -375,7 +402,7 @@ def read_file(input_filename,format=None,group_filter=None):
         raise Exception('format not supported: {fmt}'.format(fmt=format))
 
     if reader in readers:
-        return readers[reader](input_filename,group_filter)
+        return readers[reader](input_filename,group_filter,cb_pattern_check)
     else:
         raise Exception('Reader not found: {f}'.format(f=reader))
 
@@ -892,33 +919,8 @@ def main():
                 raise Exception('--chi2_contingency_correction param value not recognized: "{param}"'.format(param=args.chi2_contingency_correction))
         config['chi2_contingency_yates_correction'] = chi2_contingency_yates_correction
 
-        print('loading input file {f}...'.format(f=input_filename))
-        df, meta = read_file('{f}'.format(f=input_filename),format,group_filter)
-        config['df_meta'] = meta
-        
-        
-        
         # =============================
-        # 2.1.Create DVs
-        # =============================
-        print('creating derived variables, if needed...')
-        df = create_DVs(df)
-
-        # # =============================
-        # # 2.2. Apply group filter (optional)
-        # # =============================
-        # group_filter = None
-        # if args.filter:
-        #     group_filter = args.filter
-        # if group_filter:
-        #     print('query data with filter {f}...'.format(f=group_filter))
-        #     if group_filter:
-        #         df = df.query(group_filter)
-        # config['group_filter'] = group_filter
-        # config['statistics_cases_count'] = len(df.index)
-
-        # =============================
-        # 2.3. Select and prepare variables
+        # 1.5. Parse variable pattern (moved before reading so we can load only the needed columns)
         # =============================
         def prep_regex_from_pattern_mask(val):
             def find_wildcard_replacement(matches):
@@ -955,6 +957,35 @@ def main():
             var_pattern_re = re.compile(prep_regex_from_pattern_mask(var_pattern))
             cb_pattern_check = lambda col: var_pattern_re.search(col)
         config['var_pattern'] = var_pattern
+
+        print('loading input file {f}...'.format(f=input_filename))
+        df, meta = read_file('{f}'.format(f=input_filename),format,group_filter,cb_pattern_check)
+        config['df_meta'] = meta
+        
+        
+        
+        # =============================
+        # 2.1.Create DVs
+        # =============================
+        print('creating derived variables, if needed...')
+        df = create_DVs(df)
+
+        # # =============================
+        # # 2.2. Apply group filter (optional)
+        # # =============================
+        # group_filter = None
+        # if args.filter:
+        #     group_filter = args.filter
+        # if group_filter:
+        #     print('query data with filter {f}...'.format(f=group_filter))
+        #     if group_filter:
+        #         df = df.query(group_filter)
+        # config['group_filter'] = group_filter
+        # config['statistics_cases_count'] = len(df.index)
+
+        # =============================
+        # 2.3. Select and prepare variables
+        # =============================
 
         print('computing...')
         config['statistics_cases_count'] = len(df.index)
