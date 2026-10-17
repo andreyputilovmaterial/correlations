@@ -38,6 +38,7 @@ from openpyxl.formatting.rule import FormulaRule, CellIsRule # for styling resul
 MIN_CASES_LIMIT = 2 # hard-coded, for now
 EXCEL_MAX_COLUMNS = 16384
 EXCEL_MAX_ROWS = 1048576
+ADODB_ROWS_PER_FETCH = 20000 # rows retrieved per GetRows() call when streaming MDD/DDF data (tune to trade memory vs. number of COM calls)
 
 
 
@@ -258,8 +259,19 @@ def read_file_mdd(input_filename,group_filter):
                     print('FYI: no records returned for the filter "{f}"; continuing with an empty dataset.'.format(f=sfilter))
                     df = pd.DataFrame(columns=cols)
                 else:
-                    data = orecordset.GetRows()
-                    df = pd.DataFrame(list(zip(*data)),columns=cols)
+                    # Stream the result in batches instead of calling GetRows() with no
+                    # argument (which asks the provider for ALL rows in one giant allocation
+                    # and is what triggers "Not enough memory resources" on large data).
+                    # GetRows(n) returns a field-major 2D array (a tuple of per-column
+                    # tuples), so we append each column's values straight into a per-column
+                    # list and build the DataFrame once at the end. This avoids both the
+                    # single huge provider allocation and the extra list(zip(*data)) copy.
+                    col_data = {col: [] for col in cols}
+                    while not orecordset.EOF:
+                        chunk = orecordset.GetRows(ADODB_ROWS_PER_FETCH)
+                        for col, values in zip(cols, chunk):
+                            col_data[col].extend(values)
+                    df = pd.DataFrame(col_data)
                 # if group_filter:
                 #     print('query data with filter {f}...'.format(f=group_filter))
                 #     df = df.query(group_filter)
