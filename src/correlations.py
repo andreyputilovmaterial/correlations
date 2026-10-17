@@ -800,9 +800,12 @@ def prepare_df(df,cb_pattern_check,config):
 def compute(df,config):
 
     stub_cols = [col for col in df.columns]
+
     cols_count = len(stub_cols)
     col_current_index = 0
 
+    const_eta_helper_wgt_heavy = 0.87
+    const_eta_helper_wgt_fast = 0.13
 
     phi_matrix = pd.DataFrame(index=stub_cols, columns=stub_cols, dtype=float)
     strong_results = []
@@ -816,12 +819,12 @@ def compute(df,config):
     performance_counter = iter(PerformanceMonitor(config={
         # 'total_records': n_cols**2,
         # 'total_records': max(0, n_cols*(n_cols-1)//2),
-        'total_records': cols_count*(cols_count-1)/2,
+        'total_records': cols_count*(cols_count-1)/2 * const_eta_helper_wgt_heavy + cols_count*(cols_count-1)/2 * const_eta_helper_wgt_fast,
         'report_frequency_records_count': 199,
         'report_frequency_timeinterval': 9
     }))
     for col1 in stub_cols:
-        performance_counter.step(cols_count - col_current_index - 1)
+        performance_counter.step( (cols_count - col_current_index - 1) * const_eta_helper_wgt_heavy + col_current_index * const_eta_helper_wgt_fast )
         for col2 in stub_cols:
             try:
                 # next(performance_counter)
