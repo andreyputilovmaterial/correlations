@@ -604,6 +604,11 @@ class PerformanceMonitor:
                     return '{n} minutes'.format(n=fmt(0.1*int(seconds/6)))
                 else:
                     return '{n} hours'.format(n=fmt(0.1*int(seconds/360)))
+        def fmt_count(v):
+            # Whole numbers print without decimals; otherwise at most 1 decimal place.
+            if v == int(v):
+                return '{n}'.format(n=int(v))
+            return '{n:.1f}'.format(n=v)
         self.progress = self.progress + n
         if (self.config_frequency_records is None) or (self.progress - self.progress_last_reported > self.config_frequency_records):
             time_now = time.time()
@@ -623,8 +628,8 @@ class PerformanceMonitor:
                 else:
                     self._remaining_seconds = None
                 print( '{text_pipe}: processing {nline}{display_out_total}{display_details}'.format(
-                    nline = self.progress,
-                    display_out_total = ' / {nlinetotal}'.format(nlinetotal=self.userprovideddata_totalrecords) if (self.userprovideddata_totalrecords is not None) else '',
+                    nline = fmt_count(self.progress),
+                    display_out_total = ' / {nlinetotal}'.format(nlinetotal=fmt_count(self.userprovideddata_totalrecords)) if (self.userprovideddata_totalrecords is not None) else '',
                     display_details = ' ({per}%{details_eta})'.format(
                         per = round(self.progress*100/self.userprovideddata_totalrecords,1),
                         details_eta = ', remaining: {remaining}, ETA: {eta}'.format(
@@ -804,8 +809,8 @@ def compute(df,config):
     cols_count = len(stub_cols)
     col_current_index = 0
 
-    const_eta_helper_wgt_heavy = 0.87
-    const_eta_helper_wgt_fast = 0.13
+    const_eta_helper_wgt_heavy = 0.77
+    const_eta_helper_wgt_fast = 0.23
 
     phi_matrix = pd.DataFrame(index=stub_cols, columns=stub_cols, dtype=float)
     strong_results = []
