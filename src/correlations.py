@@ -286,6 +286,7 @@ def read_file_mdd(input_filename,group_filter,cb_pattern_check=None):
                     select_sql = 'SELECT ' + ', '.join(cols_to_select) + ' FROM VDATA WHERE ' + sanitize_name_for_sql_string(sfilter)
                 else:
                     select_sql = "SELECT * FROM VDATA WHERE " + sanitize_name_for_sql_string(sfilter)
+                print(f'FYI: SQL statement: {repr(select_sql)}')
                 try:
                     orecordset.Open(select_sql, oconnection)
                 except Exception as e:
